@@ -75,6 +75,35 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
+// Replace libnode.so in merged libs with 16KB-aligned version for Android 15+
+def alignedLibnodeDir = file("libnode/bin-aligned")
+def mergedLibsDebug = file("build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib")
+def mergedLibsRelease = file("build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib")
+
+def replaceLibnodeAligned = { String abi, File mergedDir ->
+    def aligned = file("${alignedLibnodeDir}/${abi}/libnode.so")
+    def target = file("${mergedDir}/${abi}/libnode.so")
+    if (aligned.exists() && target.exists()) {
+        logger.lifecycle("[16KB-align] Replacing ${abi}/libnode.so with 16KB-aligned version")
+        target.bytes = aligned.bytes
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'mergeDebugNativeLibs') {
+        task.doLast {
+            replaceLibnodeAligned('arm64-v8a', mergedLibsDebug)
+            replaceLibnodeAligned('x86_64', mergedLibsDebug)
+        }
+    }
+    if (task.name == 'mergeReleaseNativeLibs') {
+        task.doLast {
+            replaceLibnodeAligned('arm64-v8a', mergedLibsRelease)
+            replaceLibnodeAligned('x86_64', mergedLibsRelease)
+        }
+    }
+}
+
 try {
     def servicesJSON = file('google-services.json')
     if (servicesJSON.text) {

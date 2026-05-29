@@ -44,6 +44,8 @@ APK
 | `android/download-libnode.ps1` | Downloads `libnode.so` from nodejs-mobile releases |
 | `mobile/prepare-assets.ps1` | Bundles ST files into APK assets directory |
 | `mobile/build-apk.ps1` | Full build pipeline script |
+| `mobile/repack-elf-16k.py` | Repacks `libnode.so` for 16KB page alignment (Android 15+) |
+| `android/app/libnode/bin-aligned/` | Pre-built 16KB-aligned `libnode.so` (stripped + repacked) |
 
 ## Building
 
@@ -101,7 +103,7 @@ Additionally, `start-mobile.js` monkey-patches `TextDecoder` to strip the `{fata
 ## Known Limitations
 
 - **Node.js 18** — nodejs-mobile only provides v18.20.4. Building Node 20+ for Android from source would eliminate all regex/ICU patches.
-- **16KB page alignment** — `libnode.so` from nodejs-mobile is not 16KB-aligned, causing crashes on Android 15+ devices. Current workaround: `targetSdk=34`.
+- **Android 15+ support** — `libnode.so` is repacked for 16KB page alignment using `mobile/repack-elf-16k.py`. The build pipeline (`build.gradle`) automatically replaces the original with the aligned version. `targetSdk=35`.
 - **~191MB APK** — The bundled server files and libnode.so are large. Future work: pre-compile webpack, trim node_modules, use Android App Bundles.
 - **First-run extraction** — Takes ~20-30 seconds to extract assets on first launch. Subsequent launches are fast (~5s to server ready).
 - **No background service** — The server stops when the app is closed.
@@ -110,7 +112,7 @@ Additionally, `start-mobile.js` monkey-patches `TextDecoder` to strip the `{fata
 
 - [ ] Build Node.js 20+ for Android ARM64 from source using NDK
 - [ ] Pre-compile webpack bundle before APK packaging
-- [ ] 16KB page-align `libnode.so` for Android 15+ support
+- [x] 16KB page-align `libnode.so` for Android 15+ support
 - [ ] Reduce APK size with Android App Bundle (AAB)
 - [ ] Add a persistent notification for background server mode
 - [ ] Auto-detect and configure API keys from Android clipboard on first run
