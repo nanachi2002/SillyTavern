@@ -145,19 +145,19 @@ cacheSize: 50
 |-----------|---------|
 | **Node.js 18** | nodejs-mobile only has v18.20.4. Building Node 20+ from NDK source would fix all regex/ICU issues |
 | **~191MB APK** | Bundled server files + libnode.so are large |
-| **16KB page alignment** | `libnode.so` not aligned for Android 15+ devices. Workaround: `targetSdk=34` |
+| **16KB page alignment** | Resolved — `libnode.so` repacked for 16KB alignment via `mobile/repack-elf-16k.py`. `targetSdk=35` |
 | **~20s first launch** | Asset extraction on first run. Subsequent launches ~5s |
 | **No background service** | Server stops when app is closed |
 
 ## Tested On
 
-- Pixel 7 (arm64-v8a, Android 14) — SillyTavern 1.18.0 loads and functions correctly
+- Pixel 7 (arm64-v8a, Android 16) — SillyTavern 1.18.0 loads and functions correctly
 
 ## Future Improvements
 
 - [ ] Build Node.js 20+ for Android ARM64 using NDK — eliminates all regex/ICU patches
 - [ ] Pre-compile webpack bundle before APK packaging — faster startup
-- [ ] 16KB page-align `libnode.so` for Android 15+ support
+- [x] 16KB page-align `libnode.so` for Android 15+ support
 - [ ] Android App Bundle (AAB) — smaller downloads via dynamic delivery
 - [ ] Background service with persistent notification
 - [ ] Reduce APK size — trim unused node_modules, compress assets
