@@ -65,6 +65,15 @@ android {
         }
     }
 
+    // SillyTavern-1.18.0-android.2-arm64-v8a.apk instead of app-arm64-v8a-release.apk
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach { output ->
+            def abi = output.getFilter('ABI') ?: 'universal'
+            def suffix = variant.buildType.name == 'release' ? '' : "-${variant.buildType.name}"
+            outputFileName = "SillyTavern-${variant.versionName}-${abi}${suffix}.apk"
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

@@ -47,6 +47,21 @@ const MOBILE_FILES = ['start-mobile.js', 'runtime'];
 const TOOL_PACKAGES = ['acorn@8.15.0', 'regexpu-core@6.2.0', 'archiver@7.0.1'];
 /** Runtime packages added to the bundle for the Node 18 compatibility layer. */
 const RUNTIME_PACKAGES = ['regexpu-core@6.2.0'];
+/**
+ * Files in node_modules that are never loaded on the phone (relative to node_modules, glob-free).
+ * src/transformers.js points ONNX Runtime at sillytavern-transformers/dist with numThreads = 1,
+ * so only the single-threaded ort-wasm(-simd).wasm from there is used.
+ */
+const UNUSED_MODULE_FILES = [
+    'onnxruntime-web/dist/ort-wasm.wasm',
+    'onnxruntime-web/dist/ort-wasm-simd.wasm',
+    'onnxruntime-web/dist/ort-wasm-threaded.wasm',
+    'onnxruntime-web/dist/ort-wasm-simd-threaded.wasm',
+    'sillytavern-transformers/dist/ort-wasm-threaded.wasm',
+    'sillytavern-transformers/dist/ort-wasm-simd-threaded.wasm',
+    // protobufjs' command line tools (pbjs/pbts) and their dependencies
+    'protobufjs/cli',
+];
 
 function log(message) {
     console.log(`\x1b[36m[build-assets]\x1b[0m ${message}`);
@@ -402,6 +417,13 @@ function pruneNodeModules() {
     };
     for (const dir of [nodeModules, path.join(stageDir, 'mobile', 'runtime', 'node_modules')]) {
         if (fs.existsSync(dir)) walk(dir, 0);
+    }
+    for (const rel of UNUSED_MODULE_FILES) {
+        const full = path.join(nodeModules, rel);
+        if (fs.existsSync(full)) {
+            fs.rmSync(full, { recursive: true, force: true });
+            removed++;
+        }
     }
     log(`Pruned ${removed} unneeded files/directories from node_modules`);
 }

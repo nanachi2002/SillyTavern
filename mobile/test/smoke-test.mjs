@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const mobileDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -65,6 +65,29 @@ async function check(name, fn) {
 
 function assert(condition, message) {
     if (!condition) throw new Error(message);
+}
+
+function runNode(script) {
+    return new Promise((resolve, reject) => {
+        const p = spawn(nodeBinary, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let output = '';
+        p.stdout.on('data', d => output += d);
+        p.stderr.on('data', d => output += d);
+        p.on('close', (code) => code === 0 ? resolve(output.trim()) : reject(new Error(output.slice(-2000))));
+    });
+}
+
+/** Minimal protobuf encoding of an ONNX model with one Identity node: y = x (float[1]). */
+function identityModel() {
+    const varint = (n) => { const b = []; do { b.push((n & 0x7f) | (n > 0x7f ? 0x80 : 0)); n >>>= 7; } while (n); return Buffer.from(b); };
+    const field = (no, value) => typeof value === 'number'
+        ? Buffer.concat([varint(no << 3), varint(value)])
+        : Buffer.concat([varint((no << 3) | 2), varint(Buffer.byteLength(value)), Buffer.from(value)]);
+    const valueInfo = (name) => Buffer.concat([field(1, name),
+        field(2, field(1, Buffer.concat([field(1, 1 /* FLOAT */), field(2, field(1, field(1, 1)))])))]);
+    const node = Buffer.concat([field(1, 'x'), field(2, 'y'), field(4, 'Identity')]);
+    const graph = Buffer.concat([field(1, node), field(2, 'g'), field(11, valueInfo('x')), field(12, valueInfo('y'))]);
+    return Buffer.concat([field(1, 7 /* IR version */), field(7, graph), field(8, field(2, 13 /* opset */))]);
 }
 
 async function waitForReady(child, logs) {
@@ -207,7 +230,7 @@ async function main() {
             // Exercises the same code path as minimatch/zod/transformers in the bundle
             const out = await new Promise((resolve, reject) => {
                 const p = spawn(nodeBinary, ['--input-type=module', '-e',
-                    `await import(${JSON.stringify(path.join(stageDir, 'mobile', 'runtime', 'polyfills.js'))});` +
+                    `await import(${JSON.stringify(pathToFileURL(path.join(stageDir, 'mobile', 'runtime', 'polyfills.js')).href)});` +
                     'const r = new RegExp("^\\\\p{L}+$", "u"); console.log(r.test("Ünïcödé") && !r.test("123"));' +
                     'console.log(new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([0xe2, 0x82, 0xac])));' +
                     'try { new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([0xff])); console.log("no-throw"); } catch { console.log("throws"); }' +
@@ -219,6 +242,21 @@ async function main() {
             });
             assert(out === 'true\n€\nthrows\nfunction -1 123 ab', JSON.stringify(out));
         });
+        for (const simd of [true, false]) {
+            await check(`ONNX runtime (${simd ? 'SIMD' : 'no SIMD'} WASM)`, async () => {
+                // Same settings as src/transformers.js; catches missing or pruned .wasm files
+                const out = await runNode([
+                    `const ort = require(${JSON.stringify(path.join(stageDir, 'node_modules', 'onnxruntime-web'))});`,
+                    'ort.env.wasm.numThreads = 1;',
+                    `ort.env.wasm.simd = ${simd};`,
+                    `ort.env.wasm.wasmPaths = ${JSON.stringify(path.join(stageDir, 'node_modules', 'sillytavern-transformers', 'dist') + path.sep)};`,
+                    `ort.InferenceSession.create(Buffer.from(${JSON.stringify(identityModel().toString('base64'))}, 'base64'), { executionProviders: ['wasm'] })`,
+                    '  .then(s => s.run({ x: new ort.Tensor("float32", new Float32Array([42]), [1]) }))',
+                    '  .then(r => console.log(r.y.data[0]), e => { console.error(e); process.exit(1); });',
+                ].join('\n'));
+                assert(out === '42', JSON.stringify(out));
+            });
+        }
     } finally {
         child.kill('SIGTERM');
         await new Promise(r => setTimeout(r, 500));

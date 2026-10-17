@@ -19,13 +19,17 @@ Based on SillyTavern 1.18.0 (release branch).
 
 ## Install
 
-Download the APK from the latest CI run or release:
+Download the APK from the [latest release](https://github.com/nanachi2002/SillyTavern/releases/latest) and open it on your phone (allow installing from your browser or file manager when Android asks):
 
-- `app-arm64-v8a-*.apk` for almost all phones from the last few years
-- `app-armeabi-v7a-*.apk` for old 32-bit phones
-- `app-universal-*.apk` if you're unsure (bigger)
+- `SillyTavern-<version>-arm64-v8a.apk` for almost all phones from the last few years
+- `SillyTavern-<version>-armeabi-v7a.apk` for old 32-bit phones
+- `SillyTavern-<version>-universal.apk` if you're unsure (bigger)
 
-The first launch unpacks the server (about 260 MB), which takes 20–60 seconds. Later launches only start the server.
+`SHA256SUMS.txt` lists the checksums of the APKs. To update, install the new APK over the old one: your data is kept.
+
+The first launch unpacks the server (about 200 MB), which takes 10–60 seconds. Later launches only start the server (a few seconds).
+
+> **Coming from v1.0.x?** Those builds were signed with a different key, so Android refuses to update them. Make a backup (User Settings → Backup), uninstall the old app, install the new one and restore the backup.
 
 ## Your data
 
@@ -80,13 +84,15 @@ cd android && ./gradlew assembleDebug   # 3. APKs -> android/app/build/outputs/a
 
 After changing server or frontend code, re-run step 2 (`--skip-install` reuses `node_modules`). After changing only the Android app, step 3 is enough.
 
-**Release signing:** set `ST_KEYSTORE`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` (as environment variables or Gradle properties), or place `release.keystore` next to the repository folder. Without a keystore, release builds are signed with the debug key.
+**Release signing:** set `ST_KEYSTORE`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` (as environment variables or Gradle properties), or place `release.keystore` next to the repository folder. Without a keystore, release builds are signed with the debug key. Always sign public releases with the same key, otherwise users can't update.
 
-**Testing the bundle on a computer:** `node mobile/test/smoke-test.mjs /path/to/node18` boots `mobile/build/stage` with the given Node binary and checks the main server features (tokenizers, thumbnails, card import/export, chats, backups). CI runs it with Node 18.20.4 on every push (`.github/workflows/android.yml`), then builds and uploads the APKs.
+**Publishing a release:** bump `mobileRevision` in `android/app/build.gradle` (or update SillyTavern), update `mobile/RELEASE_NOTES.md`, then push a tag matching the version name, e.g. `git tag v1.18.0-android.3 && git push origin v1.18.0-android.3`. `.github/workflows/android-release.yml` builds, tests and signs the APKs and publishes them with `SHA256SUMS.txt` as a GitHub release. It needs the repository secrets `ST_KEYSTORE_BASE64` (the keystore, base64-encoded), `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD`.
+
+**Testing the bundle on a computer:** `node mobile/test/smoke-test.mjs /path/to/node18` boots `mobile/build/stage` with the given Node binary and checks the main server features (tokenizers, thumbnails, card import/export, chats, backups, ONNX runtime). CI runs it with Node 18.20.4 on every push (`.github/workflows/android.yml`), then builds and uploads the APKs.
 
 ## Known limitations
 
-- **APK size:** about 150 MB per ABI (server bundle about 100 MB, plus `libnode.so`).
+- **APK size:** about 100 MB per ABI (server bundle about 83 MB, plus `libnode.so`).
 - **16 KB page devices:** `fetch-libnode.mjs` makes `libnode.so` 16 KB page compatible when that's possible without relinking. If the downloaded library's memory segments share 16 KB pages, it warns and leaves the library unchanged. It then works on regular devices, and Android 15+ devices with 16 KB pages fall back to compatibility mode.
 - **Server plugins** that need native modules or a `git` binary don't work. UI extensions install through the built-in Git implementation.
 - Web notifications aren't supported by Android's WebView.
