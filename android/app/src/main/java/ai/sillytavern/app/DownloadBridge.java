@@ -1,6 +1,7 @@
 package ai.sillytavern.app;
 
 import android.Manifest;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -134,6 +135,7 @@ final class DownloadBridge {
         toast(activity.getString(R.string.download_failed, file.displayName, error));
     }
 
+    @TargetApi(Build.VERSION_CODES.Q)
     private PendingFile createMediaStoreFile(String name, String mime) throws IOException {
         ContentResolver resolver = activity.getContentResolver();
         ContentValues values = new ContentValues();
