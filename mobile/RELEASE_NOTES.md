@@ -8,9 +8,6 @@ A rebuilt Android port based on SillyTavern 1.18.0. It builds from a clean clone
 - `SillyTavern-1.18.0-android.2-x86_64.apk`: x86_64 emulators
 - `SillyTavern-1.18.0-android.2-universal.apk`: if you're unsure (bigger)
 - `SHA256SUMS.txt`: checksums of the APKs
-
-> **Updating from v1.0.0 or v1.0.18?** This version is signed with a new permanent release key, so Android won't install it over the old app. Make a backup first (User Settings, then Backup), uninstall the old app, install this one, then restore the backup. Future versions install over this one and keep your data.
-
 ## What's new
 - **Rebuilt port.** The app no longer uses Capacitor or AndroidX (plain Android framework only). It builds from a clean checkout.
 - **Separate server process.** A server crash or `process.exit()` can no longer close the UI, and **Retry** starts a fresh server.

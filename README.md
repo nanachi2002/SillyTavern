@@ -29,8 +29,6 @@ Download the APK from the [latest release](https://github.com/nanachi2002/SillyT
 
 The first launch unpacks the server (about 200 MB), which takes 10–60 seconds. Later launches only start the server (a few seconds).
 
-> **Coming from v1.0.x?** Those builds were signed with a different key, so Android refuses to update them. Make a backup (User Settings → Backup), uninstall the old app, install the new one and restore the backup.
-
 ## Your data
 
 | What | Where (app-private storage) |
