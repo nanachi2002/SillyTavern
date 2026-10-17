@@ -1,0 +1,3 @@
+b7e2ca2eac662cec163ea5965a7b96f5cf25495322d5e5eb9b83af71f364979c *SillyTavern-1.18.0-android.2-arm64-v8a.apk
+354d184112e4aae2773ecc31c77c6956661f372be4b1982d1cfc524f69af0059 *SillyTavern-1.18.0-android.2-armeabi-v7a.apk
+e4713069e8f7efd05e8250243f97e3e9426ac0b906e72b263ef765a9e77a82a7 *SillyTavern-1.18.0-android.2-x86_64.apk
