@@ -6,7 +6,8 @@ A rebuilt Android port based on SillyTavern 1.18.0. It builds from a clean clone
 - `SillyTavern-1.18.0-android.2-arm64-v8a.apk`: almost all phones from the last few years
 - `SillyTavern-1.18.0-android.2-armeabi-v7a.apk`: old 32-bit phones
 - `SillyTavern-1.18.0-android.2-x86_64.apk`: x86_64 emulators
-- `SillyTavern-1.18.0-android.2-universal.apk`: if you're unsure (bigger)
+
+Not sure? Take arm64-v8a.
 - `SHA256SUMS.txt`: checksums of the APKs
 ## What's new
 - **Rebuilt port.** The app no longer uses Capacitor or AndroidX (plain Android framework only). It builds from a clean checkout.

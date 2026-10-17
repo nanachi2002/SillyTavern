@@ -1,73 +1,91 @@
 name: Android Release
 
-# Push a tag like v1.18.0-android.3 to build signed APKs and publish them as a GitHub release.
+# Push a tag like v1.18.0-android.3 to publish signed APKs as a GitHub release.
 # The tag must match the versionName in android/app/build.gradle (SillyTavern version + mobileRevision).
 #
-# Required repository secrets (Settings > Secrets and variables > Actions):
-#   ST_KEYSTORE_BASE64    the release keystore, base64-encoded
-#   ST_KEYSTORE_PASSWORD  keystore password
-#   ST_KEY_ALIAS          key alias
-#   ST_KEY_PASSWORD       key password
+# Two modes:
+#  - Build: when the signing secrets below are set, the APKs are built, tested and signed here.
+#      ST_KEYSTORE_BASE64 (the release keystore, base64-encoded), ST_KEYSTORE_PASSWORD,
+#      ST_KEY_ALIAS, ST_KEY_PASSWORD
+#  - Prebuilt: without them, the APKs that were built and signed locally are taken from the
+#    `apk` branch. They must match the tag's version and carry the release certificate.
 on:
   push:
     tags: ['v*-android.*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to (re)build and release, e.g. v1.18.0-android.3'
+        description: 'Existing tag to (re)publish, e.g. v1.18.0-android.3'
         required: true
 
 permissions:
   contents: write
 
+env:
+  # SHA-256 of the release signing certificate; every published APK must carry it
+  RELEASE_CERT_SHA256: 732a9a983cefa43aef77390cfa0a08e9b7fe0e77fed89dd578f4e5935fda1dd1
+
 jobs:
   release:
-    name: Build and publish
+    name: Publish
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
+      APK_DIR: ${{ github.workspace }}/release-apks
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Check signing secrets
+      - name: Choose mode
+        id: mode
         env:
           ST_KEYSTORE_BASE64: ${{ secrets.ST_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$ST_KEYSTORE_BASE64" ]; then
-            echo "::error::ST_KEYSTORE_BASE64 is not set. Release APKs must be signed with the release key, otherwise users can't update."
-            exit 1
+          if [ -n "$ST_KEYSTORE_BASE64" ]; then
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets found: building the APKs."
+          else
+            echo "mode=prebuilt" >> "$GITHUB_OUTPUT"
+            echo "No signing secrets: publishing the prebuilt APKs from the apk branch."
           fi
 
+      # ---- Build mode ----
       - name: Set up Node.js 20 (build machine)
+        if: steps.mode.outputs.mode == 'build'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Bundle the server
+        if: steps.mode.outputs.mode == 'build'
         run: node mobile/build-assets.mjs
 
       - name: Smoke test the bundle on Node.js 18.20.4 (the Android runtime version)
+        if: steps.mode.outputs.mode == 'build'
         run: |
           curl -fsSL https://nodejs.org/dist/v18.20.4/node-v18.20.4-linux-x64.tar.xz | tar xJ -C "$RUNNER_TEMP"
           node mobile/test/smoke-test.mjs "$RUNNER_TEMP/node-v18.20.4-linux-x64/bin/node"
 
       - name: Fetch libnode.so (nodejs-mobile)
+        if: steps.mode.outputs.mode == 'build'
         run: node mobile/fetch-libnode.mjs
 
       - name: Set up JDK 17
+        if: steps.mode.outputs.mode == 'build'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Set up Gradle
+        if: steps.mode.outputs.mode == 'build'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build signed APKs
+        if: steps.mode.outputs.mode == 'build'
         working-directory: android
         env:
           ST_KEYSTORE_BASE64: ${{ secrets.ST_KEYSTORE_BASE64 }}
@@ -79,22 +97,37 @@ jobs:
           echo "$ST_KEYSTORE_BASE64" | base64 -d > "$ST_KEYSTORE"
           ./gradlew --no-daemon assembleRelease lintRelease
           rm -f "$ST_KEYSTORE"
+          mkdir -p "$APK_DIR"
+          cp app/build/outputs/apk/release/*.apk "$APK_DIR/"
 
+      # ---- Prebuilt mode ----
+      - name: Take the prebuilt APKs from the apk branch
+        if: steps.mode.outputs.mode == 'prebuilt'
+        run: |
+          git fetch --depth=1 origin apk
+          mkdir -p "$APK_DIR"
+          git --work-tree="$APK_DIR" checkout FETCH_HEAD -- .
+          find "$APK_DIR" -maxdepth 1 -type f ! -name '*.apk' -delete
+          ls -la "$APK_DIR"
+
+      # ---- Both modes ----
       - name: Check version and signature
         run: |
-          APK_DIR=android/app/build/outputs/apk/release
           VERSION="${TAG#v}"
-          ls "$APK_DIR"/SillyTavern-"$VERSION"-*.apk > /dev/null || {
-            echo "::error::No APKs named for $VERSION. Does the tag match versionName (package.json version + mobileRevision)?"
-            ls "$APK_DIR"
-            exit 1
-          }
+          shopt -s nullglob
+          apks=("$APK_DIR"/*.apk)
+          [ ${#apks[@]} -gt 0 ] || { echo "::error::No APKs found"; exit 1; }
           APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          for apk in "$APK_DIR"/*.apk; do
+          for apk in "${apks[@]}"; do
+            name=$(basename "$apk")
+            if [[ "$name" != SillyTavern-"$VERSION"-*.apk ]]; then
+              echo "::error::$name does not match the tag's version $VERSION"
+              exit 1
+            fi
             CERTS=$("$APKSIGNER" verify --print-certs "$apk")
-            echo "$CERTS"
-            if [[ "$CERTS" == *"CN=Android Debug"* ]]; then
-              echo "::error::$apk is signed with the debug key"
+            echo "$name: $CERTS"
+            if [[ "$CERTS" != *"certificate SHA-256 digest: $RELEASE_CERT_SHA256"* ]]; then
+              echo "::error::$name is not signed with the release certificate"
               exit 1
             fi
           done
@@ -106,7 +139,6 @@ jobs:
         run: |
           NOTES=mobile/RELEASE_NOTES.md
           [ -f "$NOTES" ] || { echo "Release notes for $TAG" > "$RUNNER_TEMP/notes.md"; NOTES="$RUNNER_TEMP/notes.md"; }
-          APK_DIR=android/app/build/outputs/apk/release
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "$APK_DIR"/*.apk "$APK_DIR/SHA256SUMS.txt" --clobber
           else
