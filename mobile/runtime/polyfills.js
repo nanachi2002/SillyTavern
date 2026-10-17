@@ -431,14 +431,26 @@ if (typeof globalThis.Intl === 'undefined') {
         }
     }
 
+    // Like the native ones, Intl constructors also work without `new`
+    // (SillyTavern itself calls `Intl.Collator().compare`)
+    const callable = (Class) => {
+        const Wrapper = function (...args) {
+            return new Class(...args);
+        };
+        Wrapper.prototype = Class.prototype;
+        Wrapper.supportedLocalesOf = Class.supportedLocalesOf;
+        Object.defineProperty(Wrapper, 'name', { value: Class.name });
+        return Wrapper;
+    };
+
     define(globalThis, 'Intl', {
-        Collator,
-        DateTimeFormat,
-        NumberFormat,
-        PluralRules,
-        RelativeTimeFormat,
-        ListFormat,
-        Segmenter,
+        Collator: callable(Collator),
+        DateTimeFormat: callable(DateTimeFormat),
+        NumberFormat: callable(NumberFormat),
+        PluralRules: callable(PluralRules),
+        RelativeTimeFormat: callable(RelativeTimeFormat),
+        ListFormat: callable(ListFormat),
+        Segmenter: callable(Segmenter),
         Locale,
         getCanonicalLocales: (locales) => locales === undefined ? [] : [].concat(locales).map(String),
         supportedValuesOf: () => [],

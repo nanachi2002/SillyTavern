@@ -211,13 +211,13 @@ async function main() {
                     'const r = new RegExp("^\\\\p{L}+$", "u"); console.log(r.test("Ünïcödé") && !r.test("123"));' +
                     'console.log(new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([0xe2, 0x82, 0xac])));' +
                     'try { new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([0xff])); console.log("no-throw"); } catch { console.log("throws"); }' +
-                    'console.log(typeof Intl.Collator().compare, [3,1,2].toSorted().join(""));'], { stdio: ['ignore', 'pipe', 'pipe'] });
+                    'console.log(typeof Intl.Collator().compare, new Intl.Collator().compare("a", "b"), [3,1,2].toSorted().join(""), ["b","a"].sort(Intl.Collator().compare).join(""));'], { stdio: ['ignore', 'pipe', 'pipe'] });
                 let output = '';
                 p.stdout.on('data', d => output += d);
                 p.stderr.on('data', d => output += d);
                 p.on('close', (code) => code === 0 ? resolve(output.trim()) : reject(new Error(output)));
             });
-            assert(out === 'true\n€\nthrows\nfunction 123', JSON.stringify(out));
+            assert(out === 'true\n€\nthrows\nfunction -1 123 ab', JSON.stringify(out));
         });
     } finally {
         child.kill('SIGTERM');

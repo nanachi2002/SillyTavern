@@ -142,12 +142,19 @@ function stageFiles() {
 }
 
 function installDependencies() {
-    if (args.has('--skip-install') && fs.existsSync(path.join(stageDir, 'node_modules'))) {
+    const realWebpackBackup = path.join(buildDir, 'webpack-real');
+    if (args.has('--skip-install') && fs.existsSync(path.join(stageDir, 'node_modules')) && fs.existsSync(realWebpackBackup)) {
         log('Skipping npm ci (--skip-install)');
-        return;
+        // The previous run replaced webpack with the stub; put the real one back for the prebuild
+        const webpackDir = path.join(stageDir, 'node_modules', 'webpack');
+        fs.rmSync(webpackDir, { recursive: true, force: true });
+        copyRecursive(realWebpackBackup, webpackDir);
+    } else {
+        log('Installing production dependencies (npm ci --omit=dev)');
+        run(npmCommand, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stageDir });
+        fs.rmSync(realWebpackBackup, { recursive: true, force: true });
+        copyRecursive(path.join(stageDir, 'node_modules', 'webpack'), realWebpackBackup);
     }
-    log('Installing production dependencies (npm ci --omit=dev)');
-    run(npmCommand, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stageDir });
 
     log(`Installing runtime compatibility packages: ${RUNTIME_PACKAGES.join(', ')}`);
     const runtimeDir = path.join(stageDir, 'mobile', 'runtime');
@@ -173,6 +180,29 @@ function installTools() {
  * Compiling on the phone would take a long time on every launch.
  */
 function prebuildFrontendLibs() {
+    const prebuiltDir = path.join(stageDir, 'mobile', 'prebuilt');
+    const webpackDir = path.join(stageDir, 'node_modules', 'webpack');
+    const webpackVersion = JSON.parse(fs.readFileSync(path.join(webpackDir, 'package.json'), 'utf8')).version;
+
+    // The bundle only depends on these inputs. Reusing it also keeps --skip-install builds
+    // identical: their node_modules were already rewritten and pruned by the previous run.
+    const cacheKey = crypto.createHash('sha256');
+    for (const input of ['package-lock.json', 'public/lib.js', 'webpack.config.js']) {
+        cacheKey.update(fs.readFileSync(path.join(stageDir, input)));
+    }
+    const cachedFile = path.join(buildDir, 'lib-cache', `${cacheKey.digest('hex').slice(0, 16)}.js`);
+
+    fs.mkdirSync(prebuiltDir, { recursive: true });
+    if (args.has('--skip-install') && fs.existsSync(cachedFile)) {
+        fs.copyFileSync(cachedFile, path.join(prebuiltDir, 'lib.js'));
+        log('Reusing the prebuilt lib.js from the previous build');
+    } else {
+        compileFrontendLibs(prebuiltDir, cachedFile);
+    }
+    installWebpackStub(webpackDir, webpackVersion);
+}
+
+function compileFrontendLibs(prebuiltDir, cachedFile) {
     log('Pre-compiling frontend libraries with webpack');
     const tmpDataRoot = path.join(buildDir, 'webpack-data');
     fs.rmSync(tmpDataRoot, { recursive: true, force: true });
@@ -205,20 +235,21 @@ function prebuildFrontendLibs() {
         throw new Error(`Webpack did not produce ${builtFile}`);
     }
 
-    const prebuiltDir = path.join(stageDir, 'mobile', 'prebuilt');
-    fs.mkdirSync(prebuiltDir, { recursive: true });
     fs.copyFileSync(builtFile, path.join(prebuiltDir, file));
+    fs.mkdirSync(path.dirname(cachedFile), { recursive: true });
+    fs.copyFileSync(builtFile, cachedFile);
     fs.rmSync(tmpDataRoot, { recursive: true, force: true });
+    log(`Prebuilt ${file} (${(fs.statSync(path.join(prebuiltDir, file)).size / 1024).toFixed(0)} KB)`);
+}
 
-    const webpackDir = path.join(stageDir, 'node_modules', 'webpack');
-    const webpackVersion = JSON.parse(fs.readFileSync(path.join(webpackDir, 'package.json'), 'utf8')).version;
+function installWebpackStub(webpackDir, webpackVersion) {
     fs.rmSync(webpackDir, { recursive: true, force: true });
     copyRecursive(path.join(mobileDir, 'webpack-stub'), webpackDir);
     const stubPackagePath = path.join(webpackDir, 'package.json');
     const stubPackage = JSON.parse(fs.readFileSync(stubPackagePath, 'utf8'));
     stubPackage.version = webpackVersion;
     fs.writeFileSync(stubPackagePath, JSON.stringify(stubPackage, null, 4));
-    log(`Prebuilt ${file} (${(fs.statSync(path.join(prebuiltDir, file)).size / 1024).toFixed(0)} KB), webpack ${webpackVersion} replaced with stub`);
+    log(`webpack ${webpackVersion} replaced with the stub`);
 }
 
 /**
@@ -250,7 +281,8 @@ function transformUnicodeRegexes() {
     };
 
     const candidates = [];
-    for (const root of ['src', 'node_modules', 'mobile']) {
+    // Not mobile/: the runtime polyfills feature-detect \p{...} support and must stay as written
+    for (const root of ['src', 'node_modules']) {
         const dir = path.join(stageDir, root);
         if (!fs.existsSync(dir)) continue;
         for (const file of walkFiles(dir)) {
