@@ -60,13 +60,16 @@ yarn.lock
 test-results/
 
 # Mobile / Android build artifacts
+mobile/build/
 android/.gradle/
+android/local.properties
 android/app/build/
+android/app/.cxx/
 android/build/
-mobile/node-bin/*.tar.xz
 android/app/src/main/assets/sillytavern/
-android/app/src/main/assets/public/
-android/app/src/main/jniLibs/
+android/app/src/main/assets/sillytavern.zip
+android/app/src/main/assets/sillytavern-build.json
 android/app/libnode/bin/
-android/capacitor-cordova-android-plugins/
+android/app/libnode/bin-aligned/
 release.keystore
+*.jks

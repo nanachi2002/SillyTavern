@@ -1,0 +1,7 @@
+{
+    "name": "webpack",
+    "version": "0.0.0",
+    "description": "SillyTavern mobile stub: serves the frontend bundle pre-compiled at build time instead of running webpack on the device",
+    "main": "index.js",
+    "license": "MIT"
+}

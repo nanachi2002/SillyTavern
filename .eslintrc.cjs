@@ -46,6 +46,38 @@ module.exports = {
             },
         },
         {
+            // Android port: server-side runtime and build scripts
+            files: ['mobile/**/*.js', 'mobile/**/*.mjs'],
+            env: {
+                node: true,
+                es2022: true,
+            },
+            parserOptions: {
+                sourceType: 'module',
+            },
+        },
+        {
+            // Android port: CommonJS webpack stand-in
+            files: ['mobile/webpack-stub/*.js'],
+            env: {
+                node: true,
+            },
+            parserOptions: {
+                sourceType: 'script',
+            },
+        },
+        {
+            // Android port: script injected into the WebView
+            files: ['android/app/src/main/assets/*.js'],
+            env: {
+                browser: true,
+                es2022: true,
+            },
+            parserOptions: {
+                sourceType: 'script',
+            },
+        },
+        {
             // Browser-side files
             files: ['public/**/*.js'],
             env: {
@@ -75,6 +107,8 @@ module.exports = {
         'cache/**',
         'src/tokenizers/**',
         'docker/**',
+        'mobile/build/**',
+        'android/app/build/**',
         'plugins/**',
         '**/*.min.js',
         'public/scripts/extensions/quick-reply/lib/**',

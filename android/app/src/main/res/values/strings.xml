@@ -1,7 +1,32 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SillyTavern</string>
-    <string name="title_activity_main">SillyTavern</string>
-    <string name="package_name">ai.sillytavern.app</string>
-    <string name="custom_url_scheme">ai.sillytavern.app</string>
+
+    <string name="status_starting">Starting SillyTavern…</string>
+    <string name="status_starting_slow">Starting SillyTavern… (%1$d s)\nThe first start after installing or updating takes longer.</string>
+    <string name="status_installing">Unpacking SillyTavern…</string>
+    <string name="status_installing_progress">Unpacking SillyTavern… %1$d%%\nThis only happens after installing or updating the app.</string>
+    <string name="status_restarting">Restarting the server…</string>
+    <string name="status_reconnecting">Reconnecting to the server…</string>
+
+    <string name="error_title">SillyTavern could not start</string>
+    <string name="error_unknown">The server stopped for an unknown reason.</string>
+    <string name="error_service">The server service could not be started.</string>
+    <string name="error_log_title">Server log</string>
+    <string name="error_no_log">(no log yet)</string>
+    <string name="error_no_app">No app can open %1$s</string>
+    <string name="error_no_file_picker">No file picker app is available</string>
+    <string name="error_no_share">No app can share the log</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_share_log">Share log</string>
+    <string name="action_close">Close</string>
+
+    <string name="download_saved">Saved to %1$s</string>
+    <string name="download_failed">Could not save %1$s: %2$s</string>
+
+    <string name="notification_channel_name">Server status</string>
+    <string name="notification_channel_description">Shown while the SillyTavern server is running</string>
+    <string name="notification_title">SillyTavern is running</string>
+    <string name="notification_text">Tap to open. The server keeps running in the background.</string>
+    <string name="notification_stop">Stop</string>
 </resources>

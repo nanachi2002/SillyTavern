@@ -1,132 +1,110 @@
 apply plugin: 'com.android.application'
 
+import groovy.json.JsonSlurper
+
+// SillyTavern version from package.json; bump mobileRevision for Android-only releases.
+def stVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version as String
+def mobileRevision = 2
+def (stMajor, stMinor, stPatch) = stVersion.tokenize('.-').take(3).collect { it.toInteger() }
+
+// ABIs for which nodejs-mobile's libnode.so has been fetched (node mobile/fetch-libnode.mjs)
+def libnodeDir = file('libnode/bin')
+def availableAbis = ['arm64-v8a', 'armeabi-v7a', 'x86_64'].findAll { new File(libnodeDir, "${it}/libnode.so").exists() }
+def buildAbis = availableAbis.isEmpty() ? ['arm64-v8a'] : availableAbis
+
+// Release signing: ST_KEYSTORE* environment variables or gradle properties, or the legacy
+// release.keystore next to the repository. Without one, release builds use the debug key.
+def signingValue = { String name -> System.getenv(name) ?: (project.findProperty(name) as String) }
+def keystorePath = signingValue('ST_KEYSTORE') ?: rootProject.file('../release.keystore').path
+def hasReleaseKeystore = new File(keystorePath).exists()
+
 android {
-    namespace = "ai.sillytavern.app"
+    namespace = 'ai.sillytavern.app'
     compileSdk = rootProject.ext.compileSdkVersion
+
     defaultConfig {
-        applicationId "ai.sillytavern.app"
+        applicationId 'ai.sillytavern.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "1.0.18"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        aaptOptions {
-            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
-        }
-        ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
-        }
+        versionCode stMajor * 1000000 + stMinor * 10000 + stPatch * 100 + mobileRevision
+        versionName "${stVersion}-android.${mobileRevision}"
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_STL=c++_shared"
-                cppFlags ""
+                arguments '-DANDROID_STL=c++_shared'
+                cppFlags '-std=c++17 -Wall'
+                abiFilters(*buildAbis)
             }
         }
     }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include(*buildAbis)
+            universalApk buildAbis.size() > 1
+        }
+    }
+
     signingConfigs {
         release {
-            storeFile file('../../release.keystore')
-            storePassword 'sillytavern'
-            keyAlias 'sillytavern'
-            keyPassword 'sillytavern'
+            if (hasReleaseKeystore) {
+                storeFile file(keystorePath)
+                storePassword signingValue('ST_KEYSTORE_PASSWORD') ?: 'sillytavern'
+                keyAlias signingValue('ST_KEY_ALIAS') ?: 'sillytavern'
+                keyPassword signingValue('ST_KEY_PASSWORD') ?: 'sillytavern'
+            }
         }
     }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    androidResources {
+        // The server bundle is already compressed
+        noCompress 'zip'
+    }
+
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
         }
     }
+
     externalNativeBuild {
         cmake {
-            path "CMakeLists.txt"
-            version "3.22.1"
+            path 'CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    lint {
+        // CI runs lint for API-level problems; the full default rule set isn't enforced
+        checkOnly 'NewApi', 'InlinedApi', 'MissingPermission', 'WrongConstant', 'JavascriptInterface'
+        abortOnError true
+    }
+}
+
+tasks.named('preBuild').configure {
+    doFirst {
+        if (availableAbis.isEmpty()) {
+            throw new GradleException('libnode.so not found in android/app/libnode/bin/<abi>/. Run: node mobile/fetch-libnode.mjs')
+        }
+        if (!file('src/main/assets/sillytavern.zip').exists() || !file('src/main/assets/sillytavern-build.json').exists()) {
+            throw new GradleException('The SillyTavern server bundle is missing. Run: node mobile/build-assets.mjs')
+        }
+        if (!hasReleaseKeystore) {
+            logger.warn('No release keystore found (ST_KEYSTORE); release builds will be signed with the debug key.')
         }
     }
 }
-
-repositories {
-    flatDir{
-        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
-    }
-}
-
-dependencies {
-    implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation "androidx.appcompat:appcompat:"
-    implementation "androidx.coordinatorlayout:coordinatorlayout:"
-    implementation "androidx.core:core-splashscreen:"
-    implementation project(':capacitor-android')
-    testImplementation "junit:junit:"
-    androidTestImplementation "androidx.test.ext:junit:"
-    androidTestImplementation "androidx.test.espresso:espresso-core:"
-    implementation project(':capacitor-cordova-android-plugins')
-}
-
-apply from: 'capacitor.build.gradle'
-
-// Replace libnode.so in merged libs with 16KB-aligned version for Android 15+
-def alignedLibnodeDir = file("libnode/bin-aligned")
-def mergedLibsDebug = file("build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib")
-def mergedLibsRelease = file("build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib")
-
-def replaceLibnodeAligned = { String abi, File mergedDir ->
-    def aligned = file("${alignedLibnodeDir}/${abi}/libnode.so")
-    def target = file("${mergedDir}/${abi}/libnode.so")
-    if (aligned.exists() && target.exists()) {
-        logger.lifecycle("[16KB-align] Replacing ${abi}/libnode.so with 16KB-aligned version")
-        target.bytes = aligned.bytes
-    }
-}
-
-tasks.whenTaskAdded { task ->
-    if (task.name == 'mergeDebugNativeLibs') {
-        task.doLast {
-            replaceLibnodeAligned('arm64-v8a', mergedLibsDebug)
-            replaceLibnodeAligned('x86_64', mergedLibsDebug)
-        }
-    }
-    if (task.name == 'mergeReleaseNativeLibs') {
-        task.doLast {
-            replaceLibnodeAligned('arm64-v8a', mergedLibsRelease)
-            replaceLibnodeAligned('x86_64', mergedLibsRelease)
-        }
-    }
-}
-
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

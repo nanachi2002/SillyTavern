@@ -1,153 +1,224 @@
+// JNI bridge between the Android app and the embedded Node.js runtime (nodejs-mobile).
+//
+// Starts node::Start() on a dedicated thread, mirrors stdout/stderr to logcat and to a log
+// file the app can show, and reports back to Java when Node.js exits.
 #include <jni.h>
-#include <string>
-#include <cstdlib>
+#include <android/log.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <android/log.h>
+
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <vector>
 
 #include "node.h"
 
-#define APPNAME "SillyTavern-Node"
+namespace {
 
-static JavaVM* cacheJavaVM = NULL;
-static jobject cacheMainActivity = NULL;
+constexpr const char *kLogTag = "SillyTavern-Node";
+constexpr size_t kNodeThreadStackSize = 8 * 1024 * 1024;
+constexpr long kMaxLogFileBytes = 8 * 1024 * 1024;
 
-int pipe_stdout[2];
-int pipe_stderr[2];
-pthread_t thread_stdout;
-pthread_t thread_stderr;
+std::atomic<bool> g_started(false);
+JavaVM *g_vm = nullptr;
+jclass g_bridge_class = nullptr;
+jmethodID g_on_exit = nullptr;
 
-void *thread_stderr_func(void*) {
-    ssize_t redirect_size;
-    char buf[2048];
-    while ((redirect_size = read(pipe_stderr[0], buf, sizeof buf - 1)) > 0) {
-        if (buf[redirect_size - 1] == '\n')
-            --redirect_size;
-        buf[redirect_size] = 0;
-        __android_log_write(ANDROID_LOG_ERROR, APPNAME, buf);
+std::mutex g_log_mutex;
+FILE *g_log_file = nullptr;
+std::string g_log_path;
+
+struct NodeArgs {
+    int argc;
+    char **argv;
+};
+
+void WriteToLogFile(const char *data, size_t length) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_log_file == nullptr) {
+        return;
     }
-    return 0;
+    // Keep the file bounded: start over when it gets too big
+    if (ftell(g_log_file) > kMaxLogFileBytes) {
+        FILE *reopened = freopen(g_log_path.c_str(), "w", g_log_file);
+        if (reopened == nullptr) {
+            g_log_file = nullptr;
+            return;
+        }
+        g_log_file = reopened;
+        const char *notice = "[log truncated]\n";
+        fwrite(notice, 1, strlen(notice), g_log_file);
+    }
+    fwrite(data, 1, length, g_log_file);
+    fflush(g_log_file);
 }
 
-void *thread_stdout_func(void*) {
-    ssize_t redirect_size;
-    char buf[2048];
-    while ((redirect_size = read(pipe_stdout[0], buf, sizeof buf - 1)) > 0) {
-        if (buf[redirect_size - 1] == '\n')
-            --redirect_size;
-        buf[redirect_size] = 0;
-        __android_log_write(ANDROID_LOG_INFO, APPNAME, buf);
+struct PipeReader {
+    int fd;
+    int priority;
+};
+
+void *ReadPipe(void *arg) {
+    PipeReader reader = *static_cast<PipeReader *>(arg);
+    delete static_cast<PipeReader *>(arg);
+    char buffer[4096];
+    ssize_t size;
+    while ((size = read(reader.fd, buffer, sizeof(buffer) - 1)) > 0) {
+        WriteToLogFile(buffer, static_cast<size_t>(size));
+        if (buffer[size - 1] == '\n') {
+            size--;
+        }
+        buffer[size] = '\0';
+        __android_log_write(reader.priority, kLogTag, buffer);
     }
-    return 0;
+    return nullptr;
 }
 
-int start_redirecting_stdout_stderr() {
-    setvbuf(stdout, 0, _IONBF, 0);
-    pipe(pipe_stdout);
-    dup2(pipe_stdout[1], STDOUT_FILENO);
-    setvbuf(stderr, 0, _IONBF, 0);
-    pipe(pipe_stderr);
-    dup2(pipe_stderr[1], STDERR_FILENO);
-    if (pthread_create(&thread_stdout, 0, thread_stdout_func, 0) == -1)
-        return -1;
-    pthread_detach(thread_stdout);
-    if (pthread_create(&thread_stderr, 0, thread_stderr_func, 0) == -1)
-        return -1;
-    pthread_detach(thread_stderr);
-    return 0;
+bool StartPipeReader(int target_fd, int priority) {
+    int fds[2];
+    if (pipe(fds) != 0) {
+        return false;
+    }
+    if (dup2(fds[1], target_fd) < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return false;
+    }
+    close(fds[1]);
+    pthread_t thread;
+    auto *reader = new PipeReader{fds[0], priority};
+    if (pthread_create(&thread, nullptr, ReadPipe, reader) != 0) {
+        delete reader;
+        return false;
+    }
+    pthread_detach(thread);
+    return true;
 }
 
-static pthread_t node_thread;
-static char** node_argv = NULL;
-
-void *node_thread_func(void *arg) {
-    start_redirecting_stdout_stderr();
-
-    int argc = 0;
-    char **argv = (char**)arg;
-
-    while (argv[argc] != NULL) argc++;
-
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "Starting Node.js with %d args", argc);
-    for (int i = 0; i < argc; i++) {
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "  argv[%d] = %s", i, argv[i]);
+void RedirectOutput(const char *log_path) {
+    {
+        std::lock_guard<std::mutex> lock(g_log_mutex);
+        g_log_path = log_path;
+        g_log_file = fopen(log_path, "w");
     }
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    if (!StartPipeReader(STDOUT_FILENO, ANDROID_LOG_INFO) || !StartPipeReader(STDERR_FILENO, ANDROID_LOG_ERROR)) {
+        __android_log_write(ANDROID_LOG_WARN, kLogTag, "Could not redirect Node.js output");
+    }
+}
 
-    int exit_code = node::Start(argc, argv);
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "Node.js exited with code %d", exit_code);
-
-    JNIEnv *env;
+void NotifyExit(int exit_code) {
+    if (g_vm == nullptr || g_bridge_class == nullptr || g_on_exit == nullptr) {
+        return;
+    }
+    JNIEnv *env = nullptr;
     bool attached = false;
-    if (cacheJavaVM->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
-        cacheJavaVM->AttachCurrentThread(&env, NULL);
+    if (g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return;
+        }
         attached = true;
     }
+    env->CallStaticVoidMethod(g_bridge_class, g_on_exit, static_cast<jint>(exit_code));
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+    if (attached) {
+        g_vm->DetachCurrentThread();
+    }
+}
 
-    if (cacheMainActivity != NULL && env != NULL) {
-        jclass cls = env->GetObjectClass(cacheMainActivity);
-        if (cls != NULL) {
-            jmethodID mid = env->GetMethodID(cls, "onNodeExited", "(I)V");
-            if (mid != NULL) {
-                env->CallVoidMethod(cacheMainActivity, mid, (jint)exit_code);
-            }
+void *RunNode(void *arg) {
+    auto *args = static_cast<NodeArgs *>(arg);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "Starting Node.js with %d arguments", args->argc);
+    int exit_code = node::Start(args->argc, args->argv);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "Node.js exited with code %d", exit_code);
+    fflush(stdout);
+    fflush(stderr);
+    NotifyExit(exit_code);
+    // argv must stay valid for the lifetime of Node.js (libuv keeps pointers into it),
+    // so it is intentionally not freed: the process ends after Node.js anyway.
+    return nullptr;
+}
+
+std::string GetString(JNIEnv *env, jstring value) {
+    if (value == nullptr) {
+        return std::string();
+    }
+    const char *chars = env->GetStringUTFChars(value, nullptr);
+    std::string result(chars != nullptr ? chars : "");
+    if (chars != nullptr) {
+        env->ReleaseStringUTFChars(value, chars);
+    }
+    return result;
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_sillytavern_app_NodeBridge_nativeStart(JNIEnv *env, jclass clazz, jobjectArray arguments, jobjectArray environment, jstring log_path) {
+    bool expected = false;
+    if (!g_started.compare_exchange_strong(expected, true)) {
+        return JNI_FALSE;
+    }
+
+    env->GetJavaVM(&g_vm);
+    g_bridge_class = static_cast<jclass>(env->NewGlobalRef(clazz));
+    g_on_exit = env->GetStaticMethodID(clazz, "onNodeExit", "(I)V");
+    if (g_on_exit == nullptr) {
+        env->ExceptionClear();
+    }
+
+    jsize env_count = environment != nullptr ? env->GetArrayLength(environment) : 0;
+    for (jsize i = 0; i < env_count; i++) {
+        auto item = static_cast<jstring>(env->GetObjectArrayElement(environment, i));
+        std::string pair = GetString(env, item);
+        env->DeleteLocalRef(item);
+        size_t separator = pair.find('=');
+        if (separator != std::string::npos && separator > 0) {
+            setenv(pair.substr(0, separator).c_str(), pair.substr(separator + 1).c_str(), 1);
         }
     }
 
-    if (attached) {
-        cacheJavaVM->DetachCurrentThread();
-    }
+    RedirectOutput(GetString(env, log_path).c_str());
 
-    for (int i = 0; argv[i] != NULL; i++) {
-        free(argv[i]);
+    // libuv requires all argv strings to live in one contiguous block of memory
+    jsize argc = env->GetArrayLength(arguments);
+    std::vector<std::string> values;
+    size_t total_size = 0;
+    for (jsize i = 0; i < argc; i++) {
+        auto item = static_cast<jstring>(env->GetObjectArrayElement(arguments, i));
+        values.push_back(GetString(env, item));
+        env->DeleteLocalRef(item);
+        total_size += values.back().size() + 1;
     }
-    free(argv);
+    char *buffer = static_cast<char *>(calloc(total_size, sizeof(char)));
+    auto **argv = static_cast<char **>(calloc(static_cast<size_t>(argc) + 1, sizeof(char *)));
+    char *cursor = buffer;
+    for (jsize i = 0; i < argc; i++) {
+        memcpy(cursor, values[i].c_str(), values[i].size() + 1);
+        argv[i] = cursor;
+        cursor += values[i].size() + 1;
+    }
+    argv[argc] = nullptr;
 
-    return NULL;
+    auto *node_args = new NodeArgs{static_cast<int>(argc), argv};
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, kNodeThreadStackSize);
+    pthread_t thread;
+    int result = pthread_create(&thread, &attr, RunNode, node_args);
+    pthread_attr_destroy(&attr);
+    if (result != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Could not create the Node.js thread: %d", result);
+        return JNI_FALSE;
+    }
+    pthread_detach(thread);
+    return JNI_TRUE;
 }
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_ai_sillytavern_app_NodeRuntime_startNodeWithArguments(
-        JNIEnv *env,
-        jobject thiz,
-        jobjectArray arguments,
-        jstring appRootPath,
-        jstring dataDirPath) {
-
-    const char* nativeAppRoot = env->GetStringUTFChars(appRootPath, 0);
-    const char* nativeDataDir = env->GetStringUTFChars(dataDirPath, 0);
-
-    setenv("NODE_ENV", "production", 1);
-    setenv("HOME", nativeDataDir, 1);
-    setenv("DATA_ROOT", nativeDataDir, 1);
-    setenv("SILLYTAVERN_BROWSERLAUNCH_ENABLED", "false", 1);
-    setenv("SILLYTAVERN_WHITELISTMODE", "false", 1);
-    setenv("SILLYTAVERN_DISABLECSRF", "true", 1);
-
-    char node_path[1024];
-    snprintf(node_path, sizeof(node_path), "%s/node_modules", nativeAppRoot);
-    setenv("NODE_PATH", node_path, 1);
-
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "NODE_PATH=%s", node_path);
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "DATA_ROOT=%s", nativeDataDir);
-
-    jsize arg_count = env->GetArrayLength(arguments);
-
-    char** argv = (char**)calloc(arg_count + 1, sizeof(char*));
-    for (int i = 0; i < arg_count; i++) {
-        const char* arg = env->GetStringUTFChars((jstring)env->GetObjectArrayElement(arguments, i), 0);
-        argv[i] = strdup(arg);
-        env->ReleaseStringUTFChars((jstring)env->GetObjectArrayElement(arguments, i), arg);
-    }
-    argv[arg_count] = NULL;
-
-    env->GetJavaVM(&cacheJavaVM);
-    cacheMainActivity = env->NewGlobalRef(thiz);
-
-    pthread_create(&node_thread, NULL, node_thread_func, (void*)argv);
-    pthread_detach(node_thread);
-
-    env->ReleaseStringUTFChars(appRootPath, nativeAppRoot);
-    env->ReleaseStringUTFChars(dataDirPath, nativeDataDir);
-}
-
