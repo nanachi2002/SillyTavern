@@ -1,174 +1,96 @@
-# SillyTavern Android
+# SillyTavern for Android
 
-Run [SillyTavern](https://github.com/SillyTavern/SillyTavern) natively on Android — no server, no cloud, no remote hosting required.
+Run [SillyTavern](https://github.com/SillyTavern/SillyTavern) entirely on your phone: no PC, no Termux, no remote server.
 
-The app bundles a Node.js runtime and the full SillyTavern server inside the APK. On launch, it starts the server on `localhost:8000` and loads the web UI in a WebView. You still need API keys for your preferred AI service (OpenAI, Claude, Kobold, etc.).
+The app contains a Node.js runtime and the complete, unmodified SillyTavern server. It starts the server on the device (only reachable from the device itself) and shows the regular SillyTavern UI. You still need an API key or endpoint for the AI service you want to use (OpenAI, Claude, OpenRouter, Gemini, KoboldCpp on your LAN, …).
 
-Based on [SillyTavern](https://github.com/SillyTavern/SillyTavern) release branch.
+Based on SillyTavern 1.18.0 (release branch).
 
----
+## Features
 
-## Screenshots
+- The full SillyTavern feature set: characters, group chats, world info, extensions, presets, personas, tokenizers, vector storage, image thumbnails, backups.
+- **Import and export:** importing character cards, chats and backgrounds uses the Android file picker. Exports, backups and other downloads are saved to `Download/SillyTavern`.
+- **Background generation:** a notification keeps the server running while you switch apps. Tap **Stop** in the notification, or swipe the app away, to shut it down.
+- **Back button:** closes the open popup, editor, menu or panel. When nothing is open, it sends the app to the background.
+- **Voice input:** the microphone is available to speech recognition extensions (Android asks for permission the first time).
+- **Crash handling:** if the server fails to start or crashes, the app shows the error and the server log, with **Retry** and **Share log** buttons.
+- Links open in your browser. OpenRouter's OAuth login stays in the app so the key is saved.
+- Works on Android 8.0+ (arm64, 32-bit ARM and x86_64 emulators), including Android 15's edge-to-edge display and on-screen keyboard handling.
 
-> *Coming soon — SillyTavern running on Android with full UI*
+## Install
 
-## How It Works
+Download the APK from the latest CI run or release:
 
-1. **Node.js on Android** — Uses [nodejs-mobile](https://github.com/nicandris/nodejs-mobile) `libnode.so` (v18.20.4) loaded via JNI. A C++ bridge calls `node::Start()` on a background thread, passing the mobile entry script and CLI args.
+- `app-arm64-v8a-*.apk` for almost all phones from the last few years
+- `app-armeabi-v7a-*.apk` for old 32-bit phones
+- `app-universal-*.apk` if you're unsure (bigger)
 
-2. **Asset Extraction** — On first run, ~300MB of server files are extracted from the APK's `assets/` directory to internal storage. A `.version` marker ensures re-extraction only on app updates.
+The first launch unpacks the server (about 260 MB), which takes 20–60 seconds. Later launches only start the server.
 
-3. **Server Startup** — The Node.js server compiles webpack and starts listening on `127.0.0.1:8000`. A Java-side socket poll waits for the server to be ready before loading the WebView.
+## Your data
 
-4. **WebView** — Once the server is confirmed reachable, a WebView loads `http://localhost:8000/` with JavaScript, DOM storage, and mobile-friendly settings.
+| What | Where (app-private storage) |
+|------|------|
+| Characters, chats, settings, extensions | `files/sillytavern-data/` |
+| `config.yaml` | `files/sillytavern-config/config.yaml` |
+| Server files (replaced on every update) | `files/sillytavern/` |
+| Server log | `files/runtime/server.log` |
 
-5. **Mobile Config** — `default/config.mobile.yaml` provides optimized defaults: localhost-only binding, CSRF disabled, whitelist disabled, CORS enabled, lazy loading, 50MB cache.
+App updates never touch your data or `config.yaml`. To move data between devices, use SillyTavern's own backup feature (User Settings → Backup). The backup ZIP lands in `Download/SillyTavern`.
 
-## Architecture
+Uninstalling the app **deletes all data**. Make a backup first.
 
-```
-APK
-├── lib/arm64-v8a/
-│   ├── libnode.so              ← Node.js runtime (nodejs-mobile v18.20.4)
-│   └── libsillytavern-node.so  ← C++ JNI bridge
-├── assets/sillytavern/
-│   ├── mobile/start-mobile.js  ← Mobile entry point
-│   ├── src/                    ← Server source (ESM)
-│   ├── node_modules/           ← Dependencies (patched for Node 18)
-│   ├── default/                ← Default configs & content
-│   └── public/                 ← Frontend static files
-└── java/ai/sillytavern/app/
-    ├── MainActivity.java       ← Activity: splash screen → server poll → WebView
-    └── NodeRuntime.java        ← Asset extraction + Node.js lifecycle
-```
-
-### Startup Flow
+## How it works
 
 ```
-App Launch
-  ├── Show splash screen "Starting SillyTavern..."
-  ├── NodeRuntime.start()
-  │   ├── prepareAppFiles() — extract assets if version changed
-  │   ├── prepareDataDirectory() — create user data dirs
-  │   └── startNodeWithArguments() — JNI → C++ → node::Start()
-  ├── pollServer() — socket connect to 127.0.0.1:8000 every 1s
-  └── setupWebView() — load http://localhost:8000/ in WebView
+┌─────────────── UI process ───────────────┐      ┌───────────── :server process ─────────────┐
+│ MainActivity                             │      │ ServerService                             │
+│  ├─ splash / progress / error screen     │ IPC  │  ├─ AssetInstaller: unzip sillytavern.zip │
+│  ├─ WebView ── http://127.0.0.1:8000 ────┼──────┼─►│   (only after install/update)          │
+│  ├─ bridge.js: downloads, back button    │      │  └─ NodeBridge (JNI) ─► libnode.so        │
+│  └─ file picker, mic, external links     │      │        └─ mobile/start-mobile.js          │
+│ KeepAliveService (notification)          │      │             └─ SillyTavern server         │
+└──────────────────────────────────────────┘      └───────────────────────────────────────────┘
 ```
+
+- **Node.js:** [nodejs-mobile](https://github.com/nodejs-mobile/nodejs-mobile) `libnode.so` (Node 18.20.4), started through a small JNI bridge (`android/app/src/main/cpp/native-lib.cpp`). Its output goes to logcat and `server.log`.
+- **Separate server process:** Node.js can only start once per process, and `process.exit()` ends the whole process. Running it in `:server` means a server crash never closes the UI, and **Retry** simply starts a fresh process.
+- **Compatibility layer:** SillyTavern targets Node 20+ with ICU, but nodejs-mobile is Node 18 built without ICU. `mobile/runtime/polyfills.js` adds what's missing (`Intl`, `TextDecoder` with `fatal`, regex `\p{…}` escapes built at runtime, newer built-ins). The bundler rewrites `\p{…}` regex literals in advance, because V8 rejects them when the file loads. The polyfills do nothing on a normal desktop Node.
+- **Prebuilt frontend:** `public/lib.js` is compiled by webpack on the build machine. Inside the APK, webpack is replaced by a stub that serves the prebuilt file, so the phone never runs webpack.
+- **Config:** on first launch, `config.yaml` is created from `default/config.yaml` with the overrides in `default/config.mobile.yaml`. The server only listens on `127.0.0.1`, and CSRF protection stays enabled so websites open in your phone's browser can't call the local server.
 
 ## Building
 
-### Prerequisites
+Requirements: Node.js 20+, JDK 17+, and the Android SDK with NDK and CMake 3.22.1 (install them from Android Studio's SDK Manager). Set `ANDROID_HOME`, or open `android/` once in Android Studio so it writes `local.properties`.
 
-- **Android Studio** with NDK 27.x
-- **JDK 21** (Android Studio's JBR)
-- **Python 3** + Pillow (for app icon generation)
-- **Node.js 20+** (for asset preparation script)
+One command (Linux, macOS or Windows):
 
-### Step 1: Download libnode.so
-
-```powershell
-cd android
-.\download-libnode.ps1
+```sh
+node mobile/build-apk.mjs          # debug build
+node mobile/build-apk.mjs release  # release build
 ```
 
-This downloads `libnode.so` (~60MB per arch) from nodejs-mobile releases for `arm64-v8a` and `x86_64`.
+Or step by step:
 
-### Step 2: Prepare APK assets
-
-```powershell
-cd ..
-powershell mobile/prepare-assets.ps1
+```sh
+node mobile/fetch-libnode.mjs      # 1. Node.js runtime -> android/app/libnode/bin/<abi>/libnode.so
+node mobile/build-assets.mjs       # 2. Server bundle   -> android/app/src/main/assets/sillytavern.zip
+cd android && ./gradlew assembleDebug   # 3. APKs -> android/app/build/outputs/apk/debug/
 ```
 
-This copies SillyTavern server files into the APK assets directory and applies Node 18 compatibility patches (see below).
+After changing server or frontend code, re-run step 2 (`--skip-install` reuses `node_modules`). After changing only the Android app, step 3 is enough.
 
-### Step 3: Build
+**Release signing:** set `ST_KEYSTORE`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` (as environment variables or Gradle properties), or place `release.keystore` next to the repository folder. Without a keystore, release builds are signed with the debug key.
 
-```powershell
-cd android
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-$env:ANDROID_HOME = "C:\Users\<you>\AppData\Local\Android\Sdk"
-.\gradlew.bat assembleRelease
-```
+**Testing the bundle on a computer:** `node mobile/test/smoke-test.mjs /path/to/node18` boots `mobile/build/stage` with the given Node binary and checks the main server features (tokenizers, thumbnails, card import/export, chats, backups). CI runs it with Node 18.20.4 on every push (`.github/workflows/android.yml`), then builds and uploads the APKs.
 
-Output: `android/app/build/outputs/apk/release/app-release.apk` (~191MB)
+## Known limitations
 
-### Step 4: Install
-
-```powershell
-adb install -r app/build/outputs/apk/release/app-release.apk
-```
-
-## Node 18 Compatibility Patches
-
-SillyTavern requires Node.js >= 20, but nodejs-mobile only provides v18.20.4. Node 18 lacks full Unicode property escape support in regex (`\p{L}`, `\p{N}`, `\p{Cc}`, etc.) and full ICU data. The `prepare-assets.ps1` script automatically patches these modules:
-
-| Module | Issue | Fix |
-|--------|-------|-----|
-| `webpack/lib/RuntimeTemplate.js` | `\p{L}` in regex | Replace with `a-zA-Z\u0080-\uffff` |
-| `webpack/lib/library/AssignLibraryPlugin.js` | `\p{L}` in regex | Replace with `a-zA-Z\u0080-\uffff` |
-| `gpt-3-encoder/Encoder.js` | `\p{L}`, `\p{N}` with `/gu` | Replace with ASCII ranges |
-| `sillytavern-transformers` | `\p{Cc}\|\p{Cf}\|\p{Co}\|\p{Cs}` | Replace with hex char ranges |
-| `tiktoken/encoders/*.js` | Various `\p{}` patterns | Replace with ASCII ranges |
-| `protobufjs/marked/*.js` | `\p{Cc}` etc. | Replace with hex ranges |
-| `minimatch/brace-expressions.js` | Unicode posix classes | Replace with ASCII ranges |
-| `isomorphic-git/index.js` | `TextDecoder({fatal: true})` | Strip fatal option |
-
-Additionally, `start-mobile.js` monkey-patches `TextDecoder` to strip `{fatal: true}` since nodejs-mobile's small-ICU build doesn't support it, and pre-seeds `settings.json` and `user.css` from `default/content/` to the user data directory.
-
-## Key Configuration
-
-### `default/config.mobile.yaml`
-
-```yaml
-port: 8000
-listen: localhost
-enableCors: true
-autoStartup: false
-skipContentCheck: true
-whitelistMode: false
-disableCsrf: true
-browserLaunchEnabled: false
-lazyStartup: true
-cacheSize: 50
-```
-
-### Android Permissions
-
-- `INTERNET` — API connections
-- `WAKE_LOCK` — Keep screen on during use
-- Cleartext traffic — Allowed only to `localhost` / `127.0.0.1` via `network_security_config.xml`
-
-## Known Limitations
-
-| Limitation | Details |
-|-----------|---------|
-| **Node.js 18** | nodejs-mobile only has v18.20.4. Building Node 20+ from NDK source would fix all regex/ICU issues |
-| **~191MB APK** | Bundled server files + libnode.so are large |
-| **16KB page alignment** | Resolved — `libnode.so` repacked for 16KB alignment via `mobile/repack-elf-16k.py`. `targetSdk=35` |
-| **~20s first launch** | Asset extraction on first run. Subsequent launches ~5s |
-| **No background service** | Server stops when app is closed |
-
-## Tested On
-
-- Pixel 7 (arm64-v8a, Android 16) — SillyTavern 1.18.0 loads and functions correctly
-
-## Future Improvements
-
-- [ ] Build Node.js 20+ for Android ARM64 using NDK — eliminates all regex/ICU patches
-- [ ] Pre-compile webpack bundle before APK packaging — faster startup
-- [x] 16KB page-align `libnode.so` for Android 15+ support
-- [ ] Android App Bundle (AAB) — smaller downloads via dynamic delivery
-- [ ] Background service with persistent notification
-- [ ] Reduce APK size — trim unused node_modules, compress assets
-
-## Resources
-
-- **Original SillyTavern**: <https://github.com/SillyTavern/SillyTavern>
-- **nodejs-mobile**: <https://github.com/nicandris/nodejs-mobile>
-- **SillyTavern Docs**: <https://docs.sillytavern.app/>
-- **Discord**: <https://discord.gg/sillytavern>
+- **APK size:** about 150 MB per ABI (server bundle about 100 MB, plus `libnode.so`).
+- **16 KB page devices:** `fetch-libnode.mjs` makes `libnode.so` 16 KB page compatible when that's possible without relinking. If the downloaded library's memory segments share 16 KB pages, it warns and leaves the library unchanged. It then works on regular devices, and Android 15+ devices with 16 KB pages fall back to compatibility mode.
+- **Server plugins** that need native modules or a `git` binary don't work. UI extensions install through the built-in Git implementation.
+- Web notifications aren't supported by Android's WebView.
 
 ## License
 
-Same as SillyTavern — see [LICENSE](./LICENSE) file in the upstream repository.
+AGPL-3.0, same as SillyTavern. See [LICENSE](./LICENSE).
