@@ -19,13 +19,13 @@ Based on SillyTavern 1.18.0 (release branch).
 
 ## Install
 
-Download the APK from the [latest release](https://github.com/nanachi2002/SillyTavern/releases/latest) and open it on your phone (allow installing from your browser or file manager when Android asks):
+Download the APK on your phone and open it (allow installing from your browser or file manager when Android asks):
 
-- `SillyTavern-<version>-arm64-v8a.apk` for almost all phones from the last few years
-- `SillyTavern-<version>-armeabi-v7a.apk` for old 32-bit phones
-- `SillyTavern-<version>-universal.apk` if you're unsure (bigger)
+- **[arm64-v8a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-arm64-v8a.apk)** for almost all phones from the last few years (take this one if you're unsure)
+- [armeabi-v7a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-armeabi-v7a.apk) for old 32-bit phones
+- [x86_64](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-x86_64.apk) for emulators
 
-`SHA256SUMS.txt` lists the checksums of the APKs. To update, install the new APK over the old one: your data is kept.
+All downloads, checksums and release notes are on the [`apk` branch](https://github.com/nanachi2002/SillyTavern/tree/apk). To update, install the new APK over the old one: your data is kept.
 
 The first launch unpacks the server (about 200 MB), which takes 10–60 seconds. Later launches only start the server (a few seconds).
 
@@ -84,7 +84,7 @@ After changing server or frontend code, re-run step 2 (`--skip-install` reuses `
 
 **Release signing:** set `ST_KEYSTORE`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` (as environment variables or Gradle properties), or place `release.keystore` next to the repository folder. Without a keystore, release builds are signed with the debug key. Always sign public releases with the same key, otherwise users can't update.
 
-**Publishing a release:** bump `mobileRevision` in `android/app/build.gradle` (or update SillyTavern), update `mobile/RELEASE_NOTES.md`, then push a tag matching the version name, e.g. `git tag v1.18.0-android.3 && git push origin v1.18.0-android.3`. `.github/workflows/android-release.yml` builds, tests and signs the APKs and publishes them with `SHA256SUMS.txt` as a GitHub release. It needs the repository secrets `ST_KEYSTORE_BASE64` (the keystore, base64-encoded), `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD`.
+**Publishing a release:** bump `mobileRevision` in `android/app/build.gradle` (or update SillyTavern) and update `mobile/RELEASE_NOTES.md`. Build signed APKs locally with `node mobile/build-apk.mjs release` and the `ST_KEYSTORE*` variables set. Then replace the files on the `apk` branch (APKs, `SHA256SUMS.txt`, download links in its README) and push it. GitHub rejects files over 100 MB, so the universal APK isn't published there. When GitHub Actions is available, pushing a tag such as `v1.18.0-android.3` runs `.github/workflows/android-release.yml` instead. That workflow builds, signs and publishes a GitHub release, and needs the repository secrets `ST_KEYSTORE_BASE64`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD`.
 
 **Testing the bundle on a computer:** `node mobile/test/smoke-test.mjs /path/to/node18` boots `mobile/build/stage` with the given Node binary and checks the main server features (tokenizers, thumbnails, card import/export, chats, backups, ONNX runtime). CI runs it with Node 18.20.4 on every push (`.github/workflows/android.yml`), then builds and uploads the APKs.
 
