@@ -9,6 +9,8 @@ import path from 'node:path';
 const statusFile = process.env.SILLYTAVERN_MOBILE_STATUS_FILE || '';
 const recentErrors = [];
 let isReady = false;
+/** Fields of the last 'ready' status, kept when the busy flag changes. */
+let readyExtra = {};
 const MAX_ERROR_LINES = 30;
 
 /**
@@ -17,7 +19,11 @@ const MAX_ERROR_LINES = 30;
  * @param {object} [extra] Additional fields
  */
 export function writeStatus(state, extra = {}) {
-    if (state === 'ready') isReady = true;
+    if (state === 'ready') {
+        isReady = true;
+        readyExtra = { ...readyExtra, ...extra };
+        extra = readyExtra;
+    }
     if (!statusFile) return;
     try {
         fs.mkdirSync(path.dirname(statusFile), { recursive: true });
@@ -27,6 +33,15 @@ export function writeStatus(state, extra = {}) {
     } catch {
         // Nothing useful can be done if the status can't be written
     }
+}
+
+/**
+ * Reports whether the server is working on requests (the app holds a wake lock meanwhile).
+ * Only reported once the server is ready.
+ * @param {boolean} busy Busy state
+ */
+export function writeBusy(busy) {
+    if (isReady) writeStatus('ready', { busy });
 }
 
 /**

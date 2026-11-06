@@ -9,6 +9,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
+import android.os.PowerManager;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
@@ -39,6 +40,12 @@ public class ServerService extends Service {
     private static final int DEFAULT_PORT = 8000;
     private static final int PORT_RANGE = 100;
     private static final long STATUS_POLL_MS = 250;
+    /**
+     * The wake lock is taken with a timeout and renewed while the server stays busy, so a
+     * stuck request can never keep the phone awake for good.
+     */
+    private static final long WAKE_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+    private static final long WAKE_LOCK_RENEW_MS = 60 * 1000;
 
     private final Object lock = new Object();
     private String state = ServerProtocol.STATE_IDLE;
@@ -46,6 +53,8 @@ public class ServerService extends Service {
     private float progress = -1f;
     private int port = 0;
     private boolean nodeLaunched = false;
+    private PowerManager.WakeLock wakeLock;
+    private long wakeLockRenewedAt;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Messenger messenger = new Messenger(new Handler(Looper.getMainLooper(), this::handleMessage));
@@ -68,6 +77,7 @@ public class ServerService extends Service {
 
     @Override
     public void onDestroy() {
+        setAwake(false);
         super.onDestroy();
         // All clients are gone (app closed or stopped from the notification).
         // Node.js can't be stopped gracefully from here, so end the process.
@@ -206,9 +216,20 @@ public class ServerService extends Service {
 
     /** Follows the status file written by mobile/runtime/status.js. */
     private void monitorNodeStatus() {
+        try {
+            followNodeStatus();
+        } finally {
+            setAwake(false);
+        }
+    }
+
+    private void followNodeStatus() {
         while (true) {
             JSONObject status = readNodeStatus();
             String nodeState = status == null ? "" : status.optString("state");
+            // The server is working on requests (a generation, for example): keep the CPU
+            // running even if the screen goes off, so the reply isn't cut off.
+            setAwake("ready".equals(nodeState) && status.optBoolean("busy", false));
             synchronized (lock) {
                 if (ServerProtocol.STATE_FAILED.equals(state)) {
                     return;
@@ -227,6 +248,35 @@ public class ServerService extends Service {
             } catch (InterruptedException e) {
                 return;
             }
+        }
+    }
+
+    /** Takes, renews or releases the partial wake lock. Called from the monitor thread. */
+    private synchronized void setAwake(boolean awake) {
+        try {
+            if (awake) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (wakeLock == null) {
+                    PowerManager power = getSystemService(PowerManager.class);
+                    if (power == null) {
+                        return;
+                    }
+                    wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SillyTavern:server");
+                    wakeLock.setReferenceCounted(false);
+                }
+                if (!wakeLock.isHeld() || now - wakeLockRenewedAt >= WAKE_LOCK_RENEW_MS) {
+                    if (!wakeLock.isHeld()) {
+                        Log.i(TAG, "Server is busy, keeping the CPU awake");
+                    }
+                    wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS);
+                    wakeLockRenewedAt = now;
+                }
+            } else if (wakeLock != null && wakeLock.isHeld()) {
+                Log.i(TAG, "Server is idle, releasing the wake lock");
+                wakeLock.release();
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Wake lock error", e);
         }
     }
 

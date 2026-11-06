@@ -4,13 +4,13 @@ Run [SillyTavern](https://github.com/SillyTavern/SillyTavern) entirely on your p
 
 The app contains a Node.js runtime and the complete, unmodified SillyTavern server. It starts the server on the device (only reachable from the device itself) and shows the regular SillyTavern UI. You still need an API key or endpoint for the AI service you want to use (OpenAI, Claude, OpenRouter, Gemini, KoboldCpp on your LAN, …).
 
-Based on SillyTavern 1.18.0 (release branch).
+Based on SillyTavern 1.19.0 (release branch).
 
 ## Features
 
 - The full SillyTavern feature set: characters, group chats, world info, extensions, presets, personas, tokenizers, vector storage, image thumbnails, backups.
 - **Import and export:** importing character cards, chats and backgrounds uses the Android file picker. Exports, backups and other downloads are saved to `Download/SillyTavern`.
-- **Background generation:** a notification keeps the server running while you switch apps. Tap **Stop** in the notification, or swipe the app away, to shut it down.
+- **Background generation:** a notification keeps the server running while you switch apps, and the CPU stays awake while a reply is generating, even with the screen off. Tap **Stop** in the notification, or swipe the app away, to shut it down.
 - **Back button:** closes the open popup, editor, menu or panel. When nothing is open, it sends the app to the background.
 - **Voice input:** the microphone is available to speech recognition extensions (Android asks for permission the first time).
 - **Crash handling:** if the server fails to start or crashes, the app shows the error and the server log, with **Retry** and **Share log** buttons.
@@ -21,9 +21,9 @@ Based on SillyTavern 1.18.0 (release branch).
 
 Download the APK on your phone and open it (allow installing from your browser or file manager when Android asks):
 
-- **[arm64-v8a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-arm64-v8a.apk)** for almost all phones from the last few years (take this one if you're unsure)
-- [armeabi-v7a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-armeabi-v7a.apk) for old 32-bit phones
-- [x86_64](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.18.0-android.2-x86_64.apk) for emulators
+- **[arm64-v8a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.19.0-android.1-arm64-v8a.apk)** for almost all phones from the last few years (take this one if you're unsure)
+- [armeabi-v7a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.19.0-android.1-armeabi-v7a.apk) for old 32-bit phones
+- [x86_64](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.19.0-android.1-x86_64.apk) for emulators
 
 The same files, checksums and release notes are on the [latest release](https://github.com/nanachi2002/SillyTavern/releases/latest) page. To update, install the new APK over the old one: your data is kept.
 
@@ -38,7 +38,7 @@ The first launch unpacks the server (about 200 MB), which takes 10–60 seconds.
 | Server files (replaced on every update) | `files/sillytavern/` |
 | Server log | `files/runtime/server.log` |
 
-App updates never touch your data or `config.yaml`. To move data between devices, use SillyTavern's own backup feature (User Settings → Backup). The backup ZIP lands in `Download/SillyTavern`.
+App updates never touch your data or `config.yaml`. Extensions installed "for all users" live inside the server files, so every update copies them into the new version (`USER_PATHS` in `AssetInstaller.java`; add any other user files SillyTavern starts keeping in the server directory there). To move data between devices, use SillyTavern's own backup feature (User Settings → Backup). The backup ZIP lands in `Download/SillyTavern`.
 
 Uninstalling the app **deletes all data**. Make a backup first.
 
@@ -84,7 +84,7 @@ After changing server or frontend code, re-run step 2 (`--skip-install` reuses `
 
 **Release signing:** set `ST_KEYSTORE`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` (as environment variables or Gradle properties), or place `release.keystore` next to the repository folder. Without a keystore, release builds are signed with the debug key. Always sign public releases with the same key, otherwise users can't update.
 
-**Publishing a release:** bump `mobileRevision` in `android/app/build.gradle` (or update SillyTavern) and update `mobile/RELEASE_NOTES.md`. Build signed APKs locally with `node mobile/build-apk.mjs release` and the `ST_KEYSTORE*` variables set. Then replace the files on the `apk` branch (APKs, `SHA256SUMS.txt`, download links in its README) and push it. GitHub rejects files over 100 MB, so the universal APK isn't published there. Finally, push a tag matching the version, e.g. `v1.18.0-android.3`. `.github/workflows/android-release.yml` then publishes those APKs as a GitHub release, after checking their version and that they carry the release certificate. If the repository secrets `ST_KEYSTORE_BASE64`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` are set, it builds and signs the APKs itself instead.
+**Publishing a release:** bump `mobileRevision` in `android/app/build.gradle` (or update SillyTavern) and update `mobile/RELEASE_NOTES.md`. Build signed APKs locally with `node mobile/build-apk.mjs release` and the `ST_KEYSTORE*` variables set. Then replace the files on the `apk` branch (APKs, `SHA256SUMS.txt`, download links in its README) and push it. GitHub rejects files over 100 MB, so the universal APK isn't published there. Finally, push a tag matching the version, e.g. `v1.19.0-android.2`. `.github/workflows/android-release.yml` then publishes those APKs as a GitHub release, after checking their version and that they carry the release certificate. If the repository secrets `ST_KEYSTORE_BASE64`, `ST_KEYSTORE_PASSWORD`, `ST_KEY_ALIAS` and `ST_KEY_PASSWORD` are set, it builds and signs the APKs itself instead.
 
 **Testing the bundle on a computer:** `node mobile/test/smoke-test.mjs /path/to/node18` boots `mobile/build/stage` with the given Node binary and checks the main server features (tokenizers, thumbnails, card import/export, chats, backups, ONNX runtime). CI runs it with Node 18.20.4 on every push (`.github/workflows/android.yml`), then builds and uploads the APKs.
 

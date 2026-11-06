@@ -30,6 +30,17 @@ final class AssetInstaller {
     private static final String BUILD_INFO_ASSET = "sillytavern-build.json";
     private static final String MARKER_FILE = ".build-id";
     private static final String ENTRY_SCRIPT = "mobile/start-mobile.js";
+    /**
+     * User files that SillyTavern stores inside the server directory instead of the data
+     * directory. They are carried over to every new version (see carryOverUserFiles).
+     * Everything else that belongs to the user (chats, characters, presets, settings,
+     * user extensions, caches) lives in the data directory and config.yaml in its own
+     * directory, which installs never touch.
+     */
+    private static final String[] USER_PATHS = {
+        // Extensions installed "for all users" (src/constants.js, globalExtensions)
+        "public/scripts/extensions/third-party",
+    };
 
     interface ProgressListener {
         void onProgress(float fraction);
@@ -48,6 +59,18 @@ final class AssetInstaller {
         JSONObject buildInfo = readBuildInfo(context.getAssets());
         String buildId = buildInfo.optString("buildId", "");
         long totalBytes = buildInfo.optLong("totalBytes", 0);
+        File parent = context.getFilesDir();
+        File tempDir = new File(parent, "sillytavern.installing");
+        File oldDir = new File(parent, "sillytavern.old");
+
+        // An earlier install was interrupted between the two renames of the swap below: the
+        // previous server files (and the user files inside them) are still in oldDir.
+        if (!appDir.exists() && oldDir.isDirectory()) {
+            Log.w(TAG, "Recovering the server files of an interrupted install");
+            if (!oldDir.renameTo(appDir)) {
+                throw new IOException("Could not recover the previous server files from " + oldDir);
+            }
+        }
 
         File marker = new File(appDir, MARKER_FILE);
         if (marker.isFile() && buildId.equals(readText(marker)) && new File(appDir, ENTRY_SCRIPT).isFile()) {
@@ -56,9 +79,6 @@ final class AssetInstaller {
         }
 
         Log.i(TAG, "Installing server files, build " + buildId);
-        File parent = context.getFilesDir();
-        File tempDir = new File(parent, "sillytavern.installing");
-        File oldDir = new File(parent, "sillytavern.old");
         deleteRecursively(tempDir);
         deleteRecursively(oldDir);
 
@@ -71,6 +91,7 @@ final class AssetInstaller {
         }
 
         unzip(context.getAssets(), tempDir, totalBytes, listener);
+        carryOverUserFiles(appDir, tempDir);
         writeText(new File(tempDir, MARKER_FILE), buildId);
 
         if (appDir.exists() && !appDir.renameTo(oldDir)) {
@@ -134,6 +155,52 @@ final class AssetInstaller {
                 }
             }
         }
+    }
+
+    /**
+     * Copies the user files that SillyTavern keeps inside the server directory into the new
+     * version. They are copied, not moved, so the old directory stays complete until the swap:
+     * an install interrupted at any point never loses them.
+     */
+    private static void carryOverUserFiles(File oldAppDir, File newAppDir) throws IOException {
+        for (String relativePath : USER_PATHS) {
+            File source = new File(oldAppDir, relativePath);
+            if (!source.exists()) {
+                continue;
+            }
+            File target = new File(newAppDir, relativePath);
+            deleteRecursively(target);
+            Log.i(TAG, "Keeping " + relativePath);
+            copyRecursively(source, target);
+        }
+    }
+
+    private static void copyRecursively(File source, File target) throws IOException {
+        if (source.isDirectory()) {
+            if (!target.isDirectory() && !target.mkdirs()) {
+                throw new IOException("Could not create " + target);
+            }
+            File[] children = source.listFiles();
+            if (children == null) {
+                throw new IOException("Could not list " + source);
+            }
+            for (File child : children) {
+                copyRecursively(child, new File(target, child.getName()));
+            }
+            return;
+        }
+        File dir = target.getParentFile();
+        if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
+            throw new IOException("Could not create " + dir);
+        }
+        byte[] buffer = new byte[64 * 1024];
+        try (InputStream in = new java.io.FileInputStream(source); OutputStream out = new FileOutputStream(target)) {
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+        }
+        target.setLastModified(source.lastModified());
     }
 
     static void deleteRecursively(File file) {

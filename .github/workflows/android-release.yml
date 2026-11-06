@@ -1,6 +1,6 @@
 name: Android Release
 
-# Push a tag like v1.18.0-android.3 to publish signed APKs as a GitHub release.
+# Push a tag like v1.19.0-android.2 to publish signed APKs as a GitHub release.
 # The tag must match the versionName in android/app/build.gradle (SillyTavern version + mobileRevision).
 #
 # Two modes:
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to (re)publish, e.g. v1.18.0-android.3'
+        description: 'Existing tag to (re)publish, e.g. v1.19.0-android.2'
         required: true
 
 permissions:

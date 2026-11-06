@@ -3,11 +3,13 @@
 // The polyfills must be the first import: later modules rely on them at load time.
 import './runtime/polyfills.js';
 import path from 'node:path';
-import { writeStatus, installExitReporting, getRecentErrors } from './runtime/status.js';
+import { writeStatus, writeBusy, installExitReporting, getRecentErrors } from './runtime/status.js';
+import { installActivityTracking } from './runtime/activity.js';
 import { seedMobileConfig } from './runtime/mobile-config.js';
 import { serverDirectory } from '../src/server-directory.js';
 
 installExitReporting();
+installActivityTracking(writeBusy);
 writeStatus('starting');
 
 process.env.NODE_ENV ??= 'production';
