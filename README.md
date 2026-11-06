@@ -25,7 +25,7 @@ Download the APK on your phone and open it (allow installing from your browser o
 - [armeabi-v7a](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.19.0-android.1-armeabi-v7a.apk) for old 32-bit phones
 - [x86_64](https://github.com/nanachi2002/SillyTavern/raw/apk/SillyTavern-1.19.0-android.1-x86_64.apk) for emulators
 
-The same files, checksums and release notes are on the [latest release](https://github.com/nanachi2002/SillyTavern/releases/latest) page. To update, install the new APK over the old one: your data is kept.
+The same files, checksums and release notes are on the [latest release](https://github.com/nanachi2002/SillyTavern/releases/latest) page. To update, install the new APK over the old one: your data is kept. **Coming from 1.18.0-android.2 or older?** 1.19.0-android.1 is a new app (`ai.sillytavern.android`) that installs next to the old one: it starts empty, so export the characters, chats and presets you want to keep from the old app and import them in the new one.
 
 The first launch unpacks the server (about 200 MB), which takes 10–60 seconds. Later launches only start the server (a few seconds).
 

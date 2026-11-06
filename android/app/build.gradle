@@ -23,7 +23,9 @@ android {
     compileSdk = rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId 'ai.sillytavern.app'
+        // Up to 1.18.0-android.2 the app was ai.sillytavern.app, signed with a key that was lost.
+        // A new ID lets the app install next to it; never reuse the old ID.
+        applicationId 'ai.sillytavern.android'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode stMajor * 1000000 + stMinor * 10000 + stPatch * 100 + mobileRevision

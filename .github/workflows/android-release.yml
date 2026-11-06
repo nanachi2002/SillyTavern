@@ -23,7 +23,7 @@ permissions:
 
 env:
   # SHA-256 of the release signing certificate; every published APK must carry it
-  RELEASE_CERT_SHA256: 732a9a983cefa43aef77390cfa0a08e9b7fe0e77fed89dd578f4e5935fda1dd1
+  RELEASE_CERT_SHA256: 4467a087e8ccc23ffb0e447f1847e3b6d532044f166955e36292facc5cf2b113
 
 jobs:
   release:

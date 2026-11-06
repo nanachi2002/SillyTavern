@@ -1,6 +1,13 @@
 # SillyTavern for Android v1.19.0-android.1
 
-Updated to SillyTavern 1.19.0. Install it over the previous version: your chats, characters, presets, settings and extensions are kept.
+Updated to SillyTavern 1.19.0.
+
+## ⚠️ New app: read this if you have 1.18.0-android.2 or older
+This version is a **new app** (`ai.sillytavern.android`, signed with a new key). It installs **next to** the old one instead of replacing it, and it starts empty: your old data stays in the old app and isn't copied over.
+To keep something, export it from the **old** app first and import it in the new one: characters (character panel → Export, PNG or JSON), chats (chat menu → Export, `.jsonl`), presets and world info (their Export buttons). Files are saved to `Download/SillyTavern`. A full backup (User Settings → Backup) is worth keeping too, but SillyTavern can't restore it in one step.
+Uninstall the old app once you don't need it anymore.
+
+From this version on, updates install over the app normally and keep your data.
 
 ## Downloads
 - `SillyTavern-1.19.0-android.1-arm64-v8a.apk`: almost all phones from the last few years
@@ -22,5 +29,5 @@ Not sure? Take arm64-v8a.
 - The first launch after installing or updating unpacks about 200 MB and takes 10 to 60 seconds. Later launches take a few seconds.
 - Your data is stored in app-private storage and is kept across updates. Uninstalling deletes it, so make a backup first (User Settings, then Backup).
 - Android 15+ devices with 16 KB pages run `libnode.so` in compatibility mode.
-- APKs are signed with the project's release key (certificate SHA-256 `73:2a:9a:98:3c:ef:a4:3a:ef:77:39:0c:fa:0a:08:e9:b7:fe:0e:77:fe:d8:9d:d5:78:f4:e5:93:5f:da:1d:d1`).
+- APKs are signed with the project's release key (certificate SHA-256 `44:67:a0:87:e8:cc:c2:3f:fb:0e:44:7f:18:47:e3:b6:d5:32:04:4f:16:69:55:e3:62:92:fa:cc:5c:f2:b1:13`).
 - This app is not on Google Play. Android will ask you to allow installing apps from your browser or file manager.

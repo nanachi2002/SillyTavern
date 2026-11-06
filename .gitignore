@@ -73,4 +73,7 @@ android/app/src/main/assets/sillytavern-build.json
 android/app/libnode/bin/
 android/app/libnode/bin-aligned/
 release.keystore
+# Local release signing key and its notes (signing/SIGNING.md): never commit
+signing/
+*.p12
 *.jks
